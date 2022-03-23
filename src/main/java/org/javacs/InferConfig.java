@@ -1,6 +1,5 @@
 package org.javacs;
 
-import com.google.devtools.build.lib.analysis.AnalysisProtos;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -12,7 +11,9 @@ import java.util.logging.Logger;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+
 class InferConfig {
+
     private static final Logger LOG = Logger.getLogger("main");
 
     /** Root of the workspace that is currently open in VSCode */
@@ -24,15 +25,30 @@ class InferConfig {
     /** Location of the gradle cache, usually ~/.gradle */
     private final Path gradleHome;
 
-    InferConfig(Path workspaceRoot, Collection<String> externalDependencies, Path mavenHome, Path gradleHome) {
+    /** Preferred Build System  */
+    private final BuildSystem buildSystemHint;
+
+    public enum BuildSystem {
+        INFERRED,
+        GRADLE,
+        MAVEN,
+        BAZEL;
+    }
+
+    InferConfig(Path workspaceRoot, Collection<String> externalDependencies, Path mavenHome, Path gradleHome, BuildSystem buildSystemHint) {
         this.workspaceRoot = workspaceRoot;
         this.externalDependencies = externalDependencies;
         this.mavenHome = mavenHome;
         this.gradleHome = gradleHome;
+        this.buildSystemHint = buildSystemHint;
     }
 
-    InferConfig(Path workspaceRoot, Collection<String> externalDependencies) {
-        this(workspaceRoot, externalDependencies, defaultMavenHome(), defaultGradleHome());
+    InferConfig(Path workspaceRoot, Collection<String> externalDependencies, Path mavenHome, Path gradleHome) {
+        this(workspaceRoot, externalDependencies, mavenHome, gradleHome, BuildSystem.INFERRED);
+    }
+
+    InferConfig(Path workspaceRoot, Collection<String> externalDependencies, BuildSystem buildSystemHint) {
+        this(workspaceRoot, externalDependencies, defaultMavenHome(), defaultGradleHome(), buildSystemHint);
     }
 
     InferConfig(Path workspaceRoot) {
@@ -64,19 +80,38 @@ class InferConfig {
             return result;
         }
 
-        // Maven
+        switch(buildSystemHint) {
+            case MAVEN: return mvnClassPath();
+            case BAZEL: return bazelClassPath();
+            default: break;
+        }
+
+        var result = mvnClassPath();
+        if (result != null) {
+            return result;
+        }
+
+        result = bazelClassPath();
+        if (result != null) {
+            return result;
+        }
+
+        return Collections.emptySet();
+            
+    }
+
+    Set<Path> mvnClassPath() {
         var pomXml = workspaceRoot.resolve("pom.xml");
         if (Files.exists(pomXml)) {
             return mvnDependencies(pomXml, "dependency:list");
         }
+    }
 
-        // Bazel
+    Set<Path> bazelClassPath() {
         var bazelWorkspaceRoot = bazelWorkspaceRoot();
         if (Files.exists(bazelWorkspaceRoot.resolve("WORKSPACE"))) {
             return bazelClasspath(bazelWorkspaceRoot);
         }
-
-        return Collections.emptySet();
     }
 
     private Path bazelWorkspaceRoot() {
@@ -105,19 +140,24 @@ class InferConfig {
             return result;
         }
 
-        // Maven
-        var pomXml = workspaceRoot.resolve("pom.xml");
-        if (Files.exists(pomXml)) {
-            return mvnDependencies(pomXml, "dependency:sources");
+        switch(buildSystemHint) {
+            case MAVEN: return mvnClassPath();
+            case BAZEL: return bazelClassPath();
+            default: break;
         }
 
-        // Bazel
-        var bazelWorkspaceRoot = bazelWorkspaceRoot();
-        if (Files.exists(bazelWorkspaceRoot.resolve("WORKSPACE"))) {
-            return bazelSourcepath(bazelWorkspaceRoot);
+        var result = mvnClassPath();
+        if (result != null) {
+            return result;
+        }
+
+        result = bazelClassPath();
+        if (result != null) {
+            return result;
         }
 
         return Collections.emptySet();
+
     }
 
     private Path findAnyJar(Artifact artifact, boolean source) {

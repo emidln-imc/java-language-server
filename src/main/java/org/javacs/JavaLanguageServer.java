@@ -100,7 +100,13 @@ class JavaLanguageServer extends LanguageServer {
         }
         // Otherwise, combine inference with user-specified external dependencies
         else {
-            var infer = new InferConfig(workspaceRoot, externalDependencies);
+            var infer = new InferConfig(
+                    workspaceRoot, 
+                    externalDependencies,
+                    settings.has("buildSystemHint") 
+                    ?  Enum.valueOf(InferConfig.BuildSystem.class, settings.get("buildSystemHint").toString().toUpperCase()) 
+                    : InferConfig.BuildSystem.INFERRED
+                );
 
             javaReportProgress(new JavaReportProgressParams("Inferring class path"));
             classPath = infer.classPath();
